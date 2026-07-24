@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Block Blast Solver</title>
+<meta name="description" content="Rekomendasi penempatan piece Block Blast untuk skor maksimal, langsung dari screenshot." />
+<meta name="theme-color" content="#020203" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icons/icon-192.png" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+<div id="app">
+
+  <header class="app-header">
+    <div class="app-header__title">
+      <span class="app-header__logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="3" y="3" width="7" height="7" rx="1.5" fill="currentColor"/>
+          <rect x="14" y="3" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.55"/>
+          <rect x="3" y="14" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.55"/>
+          <rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor"/>
+        </svg>
+      </span>
+      <h1>Block Blast Solver</h1>
+    </div>
+    <button id="btn-reset" class="icon-button" type="button" aria-label="Mulai ulang" title="Mulai ulang" hidden>
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M4 4v6h6M20 20v-6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M5.5 15a8 8 0 1 0 1.6-8.6L4 9M18.5 9a8 8 0 0 0-1.6-1.6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+  </header>
+
+  <main class="app-main">
+    <div class="step-indicator" id="step-indicator" role="list" aria-label="Langkah pengerjaan">
+      <span class="step-dot" data-step="upload" role="listitem">1</span>
+      <span class="step-dot" data-step="crop" role="listitem">2</span>
+      <span class="step-dot" data-step="correct" role="listitem">3</span>
+      <span class="step-dot" data-step="pieces" role="listitem">4</span>
+      <span class="step-dot" data-step="results" role="listitem">5</span>
+    </div>
+
+    <!-- 1. Upload -->
+    <section id="view-upload" class="view" data-view="upload">
+      <div class="card card--center">
+        <h2>Unggah Screenshot Papan</h2>
+        <p class="muted">Ambil tangkapan layar papan 8x8 dari game Block Blast, lalu unggah di sini. Kamu bisa mengoreksi hasil deteksi secara manual di langkah berikutnya.</p>
+        <label class="button button--primary button--block" for="input-file">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M12 16V4M12 4l-4 4M12 4l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>Pilih Screenshot</span>
+        </label>
+        <input id="input-file" type="file" accept="image/*" capture="environment" hidden />
+        <button id="btn-manual-start" class="button button--ghost button--block" type="button">Susun Papan Manual</button>
+      </div>
+    </section>
+
+    <!-- 2. Crop correction -->
+    <section id="view-crop" class="view hidden" data-view="crop">
+      <div class="card">
+        <h2>Koreksi Area Papan</h2>
+        <p class="muted">Geser keempat titik sudut agar pas menutupi kotak papan 8x8.</p>
+        <div class="crop-stage" id="crop-stage">
+          <canvas id="crop-canvas"></canvas>
+          <svg id="crop-overlay-svg" class="crop-overlay-svg" preserveAspectRatio="none"></svg>
+          <button class="crop-handle" id="handle-tl" type="button" aria-label="Sudut kiri atas" data-corner="tl"></button>
+          <button class="crop-handle" id="handle-tr" type="button" aria-label="Sudut kanan atas" data-corner="tr"></button>
+          <button class="crop-handle" id="handle-bl" type="button" aria-label="Sudut kiri bawah" data-corner="bl"></button>
+          <button class="crop-handle" id="handle-br" type="button" aria-label="Sudut kanan bawah" data-corner="br"></button>
+        </div>
+        <div class="button-row">
+          <button id="btn-crop-back" class="button button--ghost" type="button">Kembali</button>
+          <button id="btn-crop-confirm" class="button button--primary button--block" type="button">Lanjut</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Cell correction -->
+    <section id="view-correct" class="view hidden" data-view="correct">
+      <div class="card">
+        <h2>Koreksi Sel Papan</h2>
+        <p class="muted">Ketuk sel yang salah deteksi untuk mengubahnya terisi / kosong.</p>
+        <label class="field" id="threshold-field">
+          <span class="field__label">Sensitivitas warna (threshold saturasi)</span>
+          <input id="input-threshold" type="range" min="0" max="100" value="30" />
+        </label>
+        <div class="board-grid" id="correct-grid" role="grid" aria-label="Papan 8x8"></div>
+        <div class="legend">
+          <span class="legend__item"><span class="legend__swatch legend__swatch--filled"></span>Terisi</span>
+          <span class="legend__item"><span class="legend__swatch legend__swatch--empty"></span>Kosong</span>
+        </div>
+        <div class="button-row">
+          <button id="btn-correct-back" class="button button--ghost" type="button">Kembali</button>
+          <button id="btn-correct-confirm" class="button button--primary button--block" type="button">Lanjut Pilih Piece</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. Piece picker -->
+    <section id="view-pieces" class="view hidden" data-view="pieces">
+      <div class="card">
+        <h2>Pilih 3 Piece dari Tray</h2>
+        <p class="muted">Ketuk piece sesuai urutan yang muncul di tray game kamu (maksimal 3).</p>
+        <div class="piece-gallery" id="piece-gallery" role="listbox" aria-label="Galeri piece" aria-multiselectable="true"></div>
+      </div>
+      <div class="bottom-bar">
+        <div class="bottom-bar__selection" id="selection-summary">Belum ada piece dipilih</div>
+        <button id="btn-calculate" class="button button--primary button--block" type="button" disabled>
+          <span class="button__label">Hitung</span>
+          <span class="spinner" hidden aria-hidden="true"></span>
+        </button>
+      </div>
+    </section>
+
+    <!-- 5. Results -->
+    <section id="view-results" class="view hidden" data-view="results">
+      <div class="card card--result-summary">
+        <h2 id="result-heading">Rekomendasi Langkah</h2>
+        <div class="result-score" id="result-total-score">
+          <span class="result-score__value">0</span>
+          <span class="result-score__label">total skor</span>
+        </div>
+        <div class="result-meta" id="result-meta"></div>
+      </div>
+      <ol class="result-steps" id="result-steps"></ol>
+      <div class="button-row">
+        <button id="btn-show-alt" class="button button--ghost button--block" type="button">Lihat 4 Alternatif Lainnya</button>
+      </div>
+      <div class="alt-list hidden" id="alt-list"></div>
+      <div class="button-row">
+        <button id="btn-results-restart" class="button button--primary button--block" type="button">Mulai Ulang</button>
+      </div>
+    </section>
+
+    <div class="empty-state hidden" id="no-solution-state">
+      <p id="no-solution-message"></p>
+      <button id="btn-no-solution-back" class="button button--ghost" type="button">Kembali</button>
+    </div>
+  </main>
+
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
