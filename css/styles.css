@@ -21,6 +21,12 @@
   --success: #4fd1a5;
   --font-heading-weight: 700;
   --font-body-weight: 400;
+
+  /* Elevation scale — consistent shadow tiers instead of ad-hoc values. */
+  --shadow-sm: 0 2px 8px -2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 12px 28px -10px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 24px 48px -16px rgba(0, 0, 0, 0.65);
+  --accent-2: #8b7ff0;
 }
 
 * {
@@ -49,6 +55,34 @@ body {
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
   min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+/* Ambient depth: two soft, static accent glows fixed behind the content.
+   Purely atmospheric (no animation — motion should convey meaning, not
+   decorate), kept low-opacity so it never competes with foreground text. */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  z-index: 0;
+  width: 60vmax;
+  height: 60vmax;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(80px);
+}
+
+body::before {
+  top: -20vmax;
+  right: -25vmax;
+  background: radial-gradient(circle, rgba(94, 106, 210, 0.16) 0%, transparent 70%);
+}
+
+body::after {
+  bottom: -25vmax;
+  left: -25vmax;
+  background: radial-gradient(circle, rgba(139, 127, 240, 0.1) 0%, transparent 70%);
 }
 
 h1,
@@ -80,6 +114,7 @@ p {
 button {
   font-family: inherit;
   color: inherit;
+  touch-action: manipulation; /* removes double-tap-to-zoom + tap delay on buttons */
 }
 
 /* Numbers: scores, coordinates */
@@ -88,6 +123,8 @@ button {
 }
 
 #app {
+  position: relative;
+  z-index: 1;
   max-width: 480px;
   margin: 0 auto;
   min-height: 100vh;
@@ -121,6 +158,7 @@ button {
 .app-header__logo {
   color: var(--accent);
   display: inline-flex;
+  filter: drop-shadow(0 0 6px var(--accent-glow));
 }
 
 .app-header h1 {
@@ -138,14 +176,32 @@ button {
 }
 
 .card {
-  background: var(--surface);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.035) 100%);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 18px;
+  box-shadow: var(--shadow-sm);
 }
 
 .card--center {
   text-align: center;
+}
+
+/* Each view fades + lifts in when it becomes the active screen. Re-fires
+   automatically on every display:none -> block transition. */
+.view:not(.hidden) {
+  animation: view-in 320ms var(--easing);
+}
+
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .button-row {
@@ -167,17 +223,32 @@ button {
 }
 
 .step-dot {
+  position: relative;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--border);
-  transition: background 200ms var(--easing), transform 200ms var(--easing), width 200ms var(--easing);
+  transition: background 200ms var(--easing), transform 200ms var(--easing), width 200ms var(--easing),
+    box-shadow 200ms var(--easing);
+}
+
+/* Connecting line between dots, drawn behind them. */
+.step-dot:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  width: 8px;
+  height: 1px;
+  background: var(--border);
+  transform: translateY(-50%);
 }
 
 .step-dot.is-active {
   background: var(--accent);
   width: 20px;
   border-radius: 4px;
+  box-shadow: 0 0 10px var(--accent-glow);
 }
 
 .step-dot.is-done {
@@ -221,19 +292,28 @@ button {
 }
 
 .button--primary {
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent-2) 0%, var(--accent) 100%);
   color: #fff;
-  box-shadow: 0 8px 24px -8px var(--accent-glow), 0 0 0 6px var(--accent-glow);
+  box-shadow: var(--shadow-md), 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 0 24px var(--accent-glow);
+}
+
+.button--primary:active {
+  box-shadow: var(--shadow-sm), 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 0 16px var(--accent-glow);
 }
 
 .button--primary:disabled {
   box-shadow: none;
+  background: var(--surface);
 }
 
 .button--ghost {
   background: transparent;
   border-color: var(--border);
   color: var(--foreground);
+}
+
+.button--ghost:active {
+  background: var(--surface);
 }
 
 .icon-button {
@@ -363,6 +443,11 @@ input[type="range"] {
   margin-left: -18px;
   margin-right: -18px;
   width: calc(100% + 36px);
+  /* The grid handles its own drag-to-paint gesture in JS (see ui.js) — the
+     browser must not hijack that drag as a page scroll/pinch-zoom. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .board-cell {
@@ -376,11 +461,12 @@ input[type="range"] {
 }
 
 .board-cell.is-filled {
-  background: var(--foreground-muted);
+  background: linear-gradient(155deg, #a8adb8 0%, var(--foreground-muted) 100%);
+  box-shadow: inset 0 -2px 4px rgba(0, 0, 0, 0.25);
 }
 
 .board-cell.is-tapped {
-  box-shadow: inset 0 0 0 2px var(--accent);
+  box-shadow: inset 0 0 0 2px var(--accent), 0 0 10px var(--accent-glow);
 }
 
 /* Non-interactive mini preview grids used in results */
@@ -445,6 +531,81 @@ input[type="range"] {
   border: 1px solid var(--border);
 }
 
+/* ---------- Tray slots (selected pieces) ---------- */
+.card--tray {
+  background: linear-gradient(180deg, var(--accent-glow) 0%, rgba(255, 255, 255, 0.035) 60%);
+  border-color: rgba(94, 106, 210, 0.35);
+}
+
+.tray-slots {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.tray-slot {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  transition: border-color 200ms var(--easing), background 200ms var(--easing), transform 150ms var(--easing);
+}
+
+.tray-slot--empty {
+  border: 1.5px dashed var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--foreground-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.tray-slot--filled {
+  border: 1.5px solid var(--accent);
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 1px rgba(94, 106, 210, 0.25) inset, 0 0 16px var(--accent-glow);
+  cursor: pointer;
+  animation: slot-fill 260ms var(--easing);
+}
+
+.tray-slot--filled:active {
+  transform: scale(0.95);
+}
+
+@keyframes slot-fill {
+  from {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.tray-slot .piece-tile__cell.is-filled {
+  background: var(--accent);
+  box-shadow: 0 0 4px var(--accent-glow);
+}
+
+.tray-slot__remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--bg-base);
+  pointer-events: none; /* the whole slot is the tap target */
+}
+
 /* ---------- Piece gallery ---------- */
 .piece-gallery {
   display: grid;
@@ -464,10 +625,24 @@ input[type="range"] {
   padding: 10px;
   cursor: pointer;
   transition: border-color 150ms var(--easing), transform 150ms var(--easing), background 150ms var(--easing);
+  opacity: 0;
+  animation: tile-in 320ms var(--easing) forwards;
+  animation-delay: calc(var(--stagger-index, 0) * 15ms);
+}
+
+@keyframes tile-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .piece-tile:active {
-  transform: scale(0.97);
+  transform: scale(0.94);
 }
 
 .piece-tile.is-selected {
@@ -489,6 +664,7 @@ input[type="range"] {
 
 .piece-tile.is-selected .piece-tile__cell.is-filled {
   background: var(--accent);
+  box-shadow: 0 0 4px var(--accent-glow);
 }
 
 .piece-tile:not(.is-selected) .piece-tile__cell.is-filled {
@@ -499,9 +675,10 @@ input[type="range"] {
   position: absolute;
   top: 4px;
   right: 4px;
-  width: 20px;
+  min-width: 20px;
   height: 20px;
-  border-radius: 50%;
+  padding: 0 4px;
+  border-radius: 10px;
   background: var(--accent);
   color: #fff;
   font-size: 0.72rem;
@@ -509,6 +686,7 @@ input[type="range"] {
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 0 8px var(--accent-glow);
 }
 
 /* ---------- Bottom bar ---------- */
@@ -537,6 +715,25 @@ input[type="range"] {
 /* ---------- Results ---------- */
 .card--result-summary {
   text-align: center;
+  background: linear-gradient(180deg, var(--accent-glow) 0%, rgba(255, 255, 255, 0.035) 55%);
+  border-color: rgba(94, 106, 210, 0.35);
+  box-shadow: var(--shadow-md);
+}
+
+.result-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+  box-shadow: 0 0 16px var(--accent-glow);
 }
 
 .result-score {
@@ -548,10 +745,14 @@ input[type="range"] {
 }
 
 .result-score__value {
-  font-size: 2.5rem;
+  font-size: 3rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--accent);
+  background: linear-gradient(135deg, #fff 0%, var(--accent-2) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 40px var(--accent-glow);
 }
 
 .result-score__label {
@@ -583,11 +784,16 @@ input[type="range"] {
 .result-step {
   background: var(--surface);
   border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
   border-radius: var(--radius);
   padding: 14px;
   display: flex;
   gap: 12px;
   align-items: center;
+  box-shadow: var(--shadow-sm);
+  opacity: 0;
+  animation: tile-in 360ms var(--easing) forwards;
+  animation-delay: calc(var(--stagger-index, 0) * 70ms);
 }
 
 .result-step__number {
@@ -595,13 +801,14 @@ input[type="range"] {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent-2) 0%, var(--accent) 100%);
   color: #fff;
   font-weight: 700;
   font-size: 0.85rem;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 0 10px var(--accent-glow);
 }
 
 .result-step__grid-wrap {
@@ -632,6 +839,8 @@ input[type="range"] {
 }
 
 .alt-card {
+  width: 100%;
+  text-align: left;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -640,11 +849,13 @@ input[type="range"] {
   align-items: center;
   gap: 12px;
   cursor: pointer;
-  transition: border-color 150ms var(--easing);
+  transition: border-color 150ms var(--easing), background 150ms var(--easing), transform 150ms var(--easing);
 }
 
 .alt-card:active {
   transform: scale(0.98);
+  background: var(--accent-glow);
+  border-color: var(--accent);
 }
 
 .alt-card__rank {

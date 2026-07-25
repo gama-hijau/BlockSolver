@@ -204,26 +204,30 @@ function wirePieces() {
   ui.qs("btn-calculate").addEventListener("click", runSolve);
 }
 
-function togglePiece(piece) {
-  const idx = state.selectedPieces.findIndex((p) => p.id === piece.id);
-  if (idx !== -1) {
-    state.selectedPieces.splice(idx, 1);
-  } else if (state.selectedPieces.length >= 3) {
+// Tapping a gallery tile always fills the next empty tray slot — pieces
+// are selected by count, not by a single toggled flag, so the same shape
+// can occupy more than one of the 3 slots (the real tray can hand out
+// duplicate pieces). To remove one, tap that specific slot instead.
+function addPieceToTray(piece) {
+  if (state.selectedPieces.length >= 3) {
     ui.showToast("Maksimal 3 piece dari tray.", "error");
     return;
-  } else {
-    state.selectedPieces.push(piece);
   }
+  state.selectedPieces.push(piece);
+  updatePiecesUI();
+}
+
+function removePieceFromTray(index) {
+  state.selectedPieces.splice(index, 1);
   updatePiecesUI();
 }
 
 function updatePiecesUI() {
-  ui.renderPieceGallery(
-    ui.qs("piece-gallery"),
-    PIECES,
-    state.selectedPieces.map((p) => p.id),
-    togglePiece
-  );
+  const counts = new Map();
+  for (const p of state.selectedPieces) counts.set(p.id, (counts.get(p.id) || 0) + 1);
+
+  ui.renderTraySlots(ui.qs("tray-slots"), state.selectedPieces, removePieceFromTray);
+  ui.renderPieceGallery(ui.qs("piece-gallery"), PIECES, counts, addPieceToTray);
   ui.updateSelectionSummary(ui.qs("selection-summary"), state.selectedPieces);
   ui.qs("btn-calculate").disabled = state.selectedPieces.length === 0;
 }
@@ -279,6 +283,7 @@ function renderActiveCandidate() {
   ui.renderResultSteps(ui.qs("result-steps"), stepVMs);
   ui.renderResultSummary(candidate);
   ui.renderAltList(ui.qs("alt-list"), candidates, state.activeCandidateIndex, selectCandidate);
+  ui.qs("result-badge").hidden = state.activeCandidateIndex !== 0;
 
   ui.qs("alt-list").classList.add("hidden");
   const altCount = candidates.length - 1;

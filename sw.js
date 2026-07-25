@@ -1,7 +1,7 @@
 // sw.js — cache-first service worker so the app works fully offline after
 // the first visit. Bump CACHE_VERSION whenever any cached asset changes;
 // activate() deletes every cache that doesn't match the current version.
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const CACHE_NAME = `block-blast-solver-${CACHE_VERSION}`;
 
 const APP_SHELL = [

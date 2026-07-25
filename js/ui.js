@@ -55,6 +55,12 @@ export function setCalculateLoading(isLoading) {
 
 // Interactive 8x8 grid for manual cell correction. `grid` is a mutable
 // boolean[8][8] that this function toggles in place.
+//
+// Supports drag-to-paint: pointerdown on a cell decides the paint value
+// (the opposite of that cell's current state), then every other cell the
+// pointer moves over during the same stroke is set to that same value —
+// like a drawing/fill tool, instead of requiring one tap per cell. A plain
+// tap still works exactly as before (paints just the one cell).
 export function renderCorrectGrid(container, grid, onToggle) {
   container.innerHTML = "";
   for (let r = 0; r < 8; r++) {
@@ -63,19 +69,69 @@ export function renderCorrectGrid(container, grid, onToggle) {
       btn.type = "button";
       btn.className = "board-cell";
       if (grid[r][c]) btn.classList.add("is-filled");
+      btn.dataset.row = String(r);
+      btn.dataset.col = String(c);
       btn.setAttribute("role", "gridcell");
       btn.setAttribute("aria-label", cellLabel(r, c, grid[r][c]));
-      btn.addEventListener("click", () => {
-        grid[r][c] = !grid[r][c];
-        btn.classList.toggle("is-filled", grid[r][c]);
-        btn.setAttribute("aria-label", cellLabel(r, c, grid[r][c]));
-        btn.classList.add("is-tapped");
-        setTimeout(() => btn.classList.remove("is-tapped"), 150);
-        if (onToggle) onToggle(r, c, grid[r][c]);
-      });
       container.appendChild(btn);
     }
   }
+
+  function setCell(btn, value) {
+    const r = Number(btn.dataset.row);
+    const c = Number(btn.dataset.col);
+    if (grid[r][c] === value) return;
+    grid[r][c] = value;
+    btn.classList.toggle("is-filled", value);
+    btn.setAttribute("aria-label", cellLabel(r, c, value));
+    btn.classList.add("is-tapped");
+    setTimeout(() => btn.classList.remove("is-tapped"), 150);
+    if (onToggle) onToggle(r, c, value);
+  }
+
+  function cellFromPoint(x, y) {
+    const el = document.elementFromPoint(x, y);
+    return el instanceof HTMLElement && el.classList.contains("board-cell") && container.contains(el) ? el : null;
+  }
+
+  let painting = false;
+  let paintValue = true;
+  let touchedThisStroke = null;
+
+  container.addEventListener("pointerdown", (event) => {
+    const btn = event.target.closest(".board-cell");
+    if (!btn) return;
+    event.preventDefault();
+    painting = true;
+    touchedThisStroke = new Set([btn]);
+    paintValue = !grid[Number(btn.dataset.row)][Number(btn.dataset.col)];
+    setCell(btn, paintValue);
+    try {
+      // Capture so pointermove keeps firing on `container` even if the
+      // finger strays slightly outside the grid mid-stroke. Best-effort:
+      // if the platform won't grant capture, the tap above already
+      // registered, and dragging still works as long as the pointer stays
+      // over the grid.
+      container.setPointerCapture(event.pointerId);
+    } catch {
+      // no-op
+    }
+  });
+
+  container.addEventListener("pointermove", (event) => {
+    if (!painting) return;
+    const btn = cellFromPoint(event.clientX, event.clientY);
+    if (!btn || touchedThisStroke.has(btn)) return;
+    touchedThisStroke.add(btn);
+    setCell(btn, paintValue);
+  });
+
+  function endStroke() {
+    painting = false;
+    touchedThisStroke = null;
+  }
+  container.addEventListener("pointerup", endStroke);
+  container.addEventListener("pointercancel", endStroke);
 }
 
 function cellLabel(r, c, filled) {
@@ -119,54 +175,93 @@ export function renderMiniGrid(container, { existingGrid, newCells, clearCells }
 // Piece gallery
 // ---------------------------------------------------------------------
 
-export function renderPieceGallery(container, pieces, selectedIds, onToggle) {
+function renderPieceShape(piece) {
+  const grid = document.createElement("div");
+  grid.className = "piece-tile__grid";
+  grid.style.gridTemplateColumns = `repeat(${piece.width}, 8px)`;
+  grid.style.gridTemplateRows = `repeat(${piece.height}, 8px)`;
+  const filledSet = new Set(piece.cells.map(([r, c]) => `${r},${c}`));
+  for (let r = 0; r < piece.height; r++) {
+    for (let c = 0; c < piece.width; c++) {
+      const cell = document.createElement("div");
+      cell.className = "piece-tile__cell";
+      if (filledSet.has(`${r},${c}`)) cell.classList.add("is-filled");
+      grid.appendChild(cell);
+    }
+  }
+  return grid;
+}
+
+// `selectedCounts` is a Map<pieceId, count> — a piece can appear in more
+// than one tray slot (the real game's tray can hand out duplicate shapes),
+// so selection is a count per piece, not a single selected/unselected flag.
+export function renderPieceGallery(container, pieces, selectedCounts, onSelect) {
   container.innerHTML = "";
-  for (const piece of pieces) {
+  pieces.forEach((piece, index) => {
     const tile = document.createElement("button");
     tile.type = "button";
     tile.className = "piece-tile";
+    tile.style.setProperty("--stagger-index", String(index));
     tile.setAttribute("role", "option");
     tile.dataset.pieceId = piece.id;
 
-    const selIndex = selectedIds.indexOf(piece.id);
-    const isSelected = selIndex !== -1;
+    const count = selectedCounts.get(piece.id) || 0;
+    const isSelected = count > 0;
     tile.classList.toggle("is-selected", isSelected);
     tile.setAttribute("aria-selected", String(isSelected));
-    tile.setAttribute("aria-label", `Piece ${piece.id}${isSelected ? `, terpilih urutan ke-${selIndex + 1}` : ""}`);
+    tile.setAttribute("aria-label", `Piece ${piece.id}${isSelected ? `, dipilih ${count}x` : ""}`);
 
-    const grid = document.createElement("div");
-    grid.className = "piece-tile__grid";
-    grid.style.gridTemplateColumns = `repeat(${piece.width}, 8px)`;
-    grid.style.gridTemplateRows = `repeat(${piece.height}, 8px)`;
-    const filledSet = new Set(piece.cells.map(([r, c]) => `${r},${c}`));
-    for (let r = 0; r < piece.height; r++) {
-      for (let c = 0; c < piece.width; c++) {
-        const cell = document.createElement("div");
-        cell.className = "piece-tile__cell";
-        if (filledSet.has(`${r},${c}`)) cell.classList.add("is-filled");
-        grid.appendChild(cell);
-      }
-    }
-    tile.appendChild(grid);
+    tile.appendChild(renderPieceShape(piece));
 
-    if (isSelected) {
+    if (count > 0) {
       const badge = document.createElement("span");
       badge.className = "piece-tile__badge";
-      badge.textContent = String(selIndex + 1);
+      badge.textContent = String(count);
       tile.appendChild(badge);
     }
 
-    tile.addEventListener("click", () => onToggle(piece));
+    tile.addEventListener("click", () => onSelect(piece));
     container.appendChild(tile);
+  });
+}
+
+// Renders the 3 tray slots. Tapping a filled slot removes just that
+// occurrence (by index), independent of which gallery tile it came from.
+export function renderTraySlots(container, selectedPieces, onRemoveAt) {
+  container.innerHTML = "";
+  for (let i = 0; i < 3; i++) {
+    const piece = selectedPieces[i];
+
+    if (!piece) {
+      const slot = document.createElement("div");
+      slot.className = "tray-slot tray-slot--empty";
+      slot.setAttribute("role", "listitem");
+      slot.textContent = `Slot ${i + 1}`;
+      container.appendChild(slot);
+      continue;
+    }
+
+    const slot = document.createElement("button");
+    slot.type = "button";
+    slot.className = "tray-slot tray-slot--filled";
+    slot.setAttribute("role", "listitem");
+    slot.setAttribute("aria-label", `Slot ${i + 1}: piece ${piece.id}. Ketuk untuk hapus.`);
+    slot.appendChild(renderPieceShape(piece));
+
+    const removeIcon = document.createElement("span");
+    removeIcon.className = "tray-slot__remove";
+    removeIcon.setAttribute("aria-hidden", "true");
+    removeIcon.innerHTML =
+      '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>';
+    slot.appendChild(removeIcon);
+
+    slot.addEventListener("click", () => onRemoveAt(i));
+    container.appendChild(slot);
   }
 }
 
 export function updateSelectionSummary(el, selectedPieces) {
-  if (selectedPieces.length === 0) {
-    el.textContent = "Belum ada piece dipilih";
-    return;
-  }
-  el.textContent = `${selectedPieces.length}/3 dipilih: ${selectedPieces.map((p) => p.id).join(", ")}`;
+  el.textContent = selectedPieces.length === 0 ? "Belum ada piece dipilih" : `${selectedPieces.length}/3 slot terisi`;
 }
 
 // ---------------------------------------------------------------------
@@ -221,6 +316,7 @@ export function renderResultSteps(container, stepVMs) {
   stepVMs.forEach((vm, i) => {
     const li = document.createElement("li");
     li.className = "result-step";
+    li.style.setProperty("--stagger-index", String(i));
 
     const num = document.createElement("div");
     num.className = "result-step__number";

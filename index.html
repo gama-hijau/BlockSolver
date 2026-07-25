@@ -2,7 +2,7 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>Block Blast Solver</title>
 <meta name="description" content="Rekomendasi penempatan piece Block Blast untuk skor maksimal, langsung dari screenshot." />
 <meta name="theme-color" content="#020203" />
@@ -60,7 +60,7 @@
           </svg>
           <span>Pilih Screenshot</span>
         </label>
-        <input id="input-file" type="file" accept="image/*" capture="environment" hidden />
+        <input id="input-file" type="file" accept="image/*" hidden />
         <button id="btn-manual-start" class="button button--ghost button--block" type="button">Susun Papan Manual</button>
       </div>
     </section>
@@ -108,9 +108,13 @@
 
     <!-- 4. Piece picker -->
     <section id="view-pieces" class="view hidden" data-view="pieces">
+      <div class="card card--tray">
+        <h2>Tray Kamu</h2>
+        <p class="muted">Ketuk piece di galeri untuk isi slot. Piece yang sama boleh dipilih lebih dari sekali. Ketuk slot untuk hapus.</p>
+        <div class="tray-slots" id="tray-slots" role="list" aria-label="Slot piece terpilih"></div>
+      </div>
       <div class="card">
-        <h2>Pilih 3 Piece dari Tray</h2>
-        <p class="muted">Ketuk piece sesuai urutan yang muncul di tray game kamu (maksimal 3).</p>
+        <h2>Galeri Piece</h2>
         <div class="piece-gallery" id="piece-gallery" role="listbox" aria-label="Galeri piece" aria-multiselectable="true"></div>
       </div>
       <div class="bottom-bar">
@@ -125,10 +129,11 @@
     <!-- 5. Results -->
     <section id="view-results" class="view hidden" data-view="results">
       <div class="card card--result-summary">
-        <h2 id="result-heading">Rekomendasi Langkah</h2>
+        <span class="result-badge" id="result-badge">Rekomendasi Terbaik</span>
+        <h2 id="result-heading">Total Skor</h2>
         <div class="result-score" id="result-total-score">
           <span class="result-score__value">0</span>
-          <span class="result-score__label">total skor</span>
+          <span class="result-score__label">poin</span>
         </div>
         <div class="result-meta" id="result-meta"></div>
       </div>
