@@ -191,9 +191,31 @@ function wireCorrect() {
 
   ui.qs("btn-correct-confirm").addEventListener("click", () => {
     state.board = fromGrid(state.grid);
+    state.selectedPieces = detectTrayPiecesIfPossible();
     setView("pieces");
     updatePiecesUI();
   });
+}
+
+// Best-effort: only meaningful when the board came from an actual
+// screenshot (manual mode has no image to read a tray from). Detected
+// pieces just pre-fill the existing tray-slot UI, which the user can
+// already tap to remove/replace — same "always correctable" pattern as
+// board auto-detection.
+function detectTrayPiecesIfPossible() {
+  if (!state.cropCanvas || !state.cropCorners) return [];
+  let matches;
+  try {
+    matches = detector.detectTrayPieces(state.cropCanvas, state.cropCorners);
+  } catch {
+    return [];
+  }
+  const found = matches.filter((p) => p !== null);
+  if (found.length > 0) {
+    const label = found.length === matches.length ? `${found.length} piece` : `${found.length}/${matches.length} piece`;
+    ui.showToast(`${label} terdeteksi otomatis dari tray, periksa kembali.`);
+  }
+  return found;
 }
 
 // ---------------------------------------------------------------------

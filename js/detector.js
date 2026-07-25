@@ -1,11 +1,17 @@
-// detector.js — screenshot -> 8x8 board detection.
+// detector.js — screenshot -> 8x8 board detection, and tray-piece detection.
 //
-// Three-stage pipeline (auto-detect is a best-effort starting point; the
-// other two stages are the real safety net and are always shown, never
+// Three-stage board pipeline (auto-detect is a best-effort starting point;
+// the other two stages are the real safety net and are always shown, never
 // hidden behind a toggle):
 //   1. autoDetectCrop  — guess the board's 4 corners from the image.
 //   2. (manual, in ui.js/app.js) user drags the 4 corner handles.
 //   3. classifyGrid + (manual, in ui.js/app.js) user taps to fix cells.
+//
+// detectTrayPieces (below classifyGrid) is the same "best effort, always
+// correctable" idea applied to the 3 tray pieces shown below the board:
+// auto-detected pieces just pre-fill the existing tray-slot UI, which the
+// user can already tap to remove/replace — no new correction UI needed.
+import { PIECES } from "./pieces.js";
 
 export const DEFAULT_THRESHOLD = 30; // 0-100, matches the UI slider range (see classifyGrid)
 
@@ -362,6 +368,212 @@ export function classifyGrid(canvas, corners, thresholdPercent) {
     grid.push(row);
   }
   return grid;
+}
+
+// ---------------------------------------------------------------------
+// Tray piece detection
+// ---------------------------------------------------------------------
+
+// Measured against real screenshots (test/fixtures): tray piece cells
+// render at roughly 45% of the board's own cell size in the same image
+// (e.g. 39px vs 87px on a 739x1600 screenshot). Both scale together with
+// device/screen size, so the ratio between them should hold across
+// devices even though absolute pixel sizes don't.
+const TRAY_CELL_RATIO = 0.45;
+
+// Deliberately NOT the same threshold as classifyGrid's user-adjustable
+// slider: that one is calibrated against the board's own (dark navy)
+// empty-cell color. The area around the tray sits on the app's outer
+// background instead, which measured saturation*value ~0.32 in real
+// screenshots — brighter than the board's empty cells (~0.18) but still
+// well below every sampled piece color (>=0.53). 0.40 sits in that gap.
+const TRAY_ACTIVITY_THRESHOLD = 0.4;
+
+// Individual cells within one piece have a thin anti-aliased bevel/border
+// between them that can read as background at low resolution, splitting
+// what should be one connected blob into several (seen on real fixtures:
+// one piece came back as 3 components with ~2px gaps). Dilating by a
+// couple of pixels bridges those gaps; the real gap *between* separate
+// pieces is tens of pixels, so this radius won't merge different pieces.
+function dilateMask(mask, w, h, radius) {
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (mask[y * w + x]) {
+        out[y * w + x] = 1;
+        continue;
+      }
+      for (let dy = -radius; dy <= radius; dy++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= h) continue;
+        for (let dx = -radius; dx <= radius; dx++) {
+          const nx = x + dx;
+          if (nx < 0 || nx >= w) continue;
+          if (mask[ny * w + nx]) {
+            out[y * w + x] = 1;
+            break;
+          }
+        }
+        if (out[y * w + x]) break;
+      }
+    }
+  }
+  return out;
+}
+
+// 8-connectivity flood fill over a boolean mask, iterative (no recursion)
+// so it can't blow the stack on a large connected region.
+function findConnectedComponents(mask, w, h) {
+  const visited = new Uint8Array(w * h);
+  const components = [];
+  const stack = [];
+  for (let start = 0; start < w * h; start++) {
+    if (!mask[start] || visited[start]) continue;
+    let minX = w;
+    let maxX = -1;
+    let minY = h;
+    let maxY = -1;
+    let size = 0;
+    stack.push(start);
+    visited[start] = 1;
+    while (stack.length > 0) {
+      const idx = stack.pop();
+      const x = idx % w;
+      const y = (idx / w) | 0;
+      size++;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+          const nIdx = ny * w + nx;
+          if (mask[nIdx] && !visited[nIdx]) {
+            visited[nIdx] = 1;
+            stack.push(nIdx);
+          }
+        }
+      }
+    }
+    components.push({ minX, maxX, minY, maxY, size });
+  }
+  return components;
+}
+
+// Matches a set of filled [row, col] cells (any origin) against the piece
+// library by canonical (origin-normalized, sorted) cell key. Returns null
+// if there's no exact match — the caller leaves that tray slot for manual
+// selection rather than guessing.
+function matchPieceShape(cells) {
+  if (cells.length === 0) return null;
+  let minR = Infinity;
+  let minC = Infinity;
+  for (const [r, c] of cells) {
+    if (r < minR) minR = r;
+    if (c < minC) minC = c;
+  }
+  const key = cells
+    .map(([r, c]) => [r - minR, c - minC])
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1])
+    .map(([r, c]) => `${r},${c}`)
+    .join(";");
+  return PIECES.find((p) => canonicalCellKey(p.cells) === key) || null;
+}
+
+function canonicalCellKey(cells) {
+  return [...cells]
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1])
+    .map(([r, c]) => `${r},${c}`)
+    .join(";");
+}
+
+// Best-effort detection of the up-to-3 pieces shown in the tray below the
+// board. Returns an array (length 0-3, left-to-right) of matched PIECES
+// entries or null where a blob was found but didn't match any known shape
+// confidently — the caller leaves those tray slots for manual picking.
+export function detectTrayPieces(canvas, boardCorners) {
+  try {
+    const threshold = TRAY_ACTIVITY_THRESHOLD;
+
+    const avgWidthNorm = ((boardCorners.tr.x - boardCorners.tl.x) + (boardCorners.br.x - boardCorners.bl.x)) / 2;
+    const avgHeightNorm = ((boardCorners.bl.y - boardCorners.tl.y) + (boardCorners.br.y - boardCorners.tr.y)) / 2;
+    const boardCellW = (avgWidthNorm * canvas.width) / 8;
+    const boardCellH = (avgHeightNorm * canvas.height) / 8;
+    const boardCellSize = (Math.abs(boardCellW) + Math.abs(boardCellH)) / 2;
+    const trayCellSize = boardCellSize * TRAY_CELL_RATIO;
+    if (trayCellSize < 1) return [];
+
+    // Search from the board's bottom edge down a generous band (gap +
+    // piece height was ~4.3 board-cell-heights in measured fixtures; 8x
+    // leaves headroom for other layouts without scanning the whole image).
+    // Start half a cell below the detected edge: on real screenshots the
+    // board-bottom detection can be off by a few px, and starting exactly
+    // at it risks catching a sliver of the board's own last row as a
+    // spurious "piece" blob.
+    const avgBottomNorm = (boardCorners.bl.y + boardCorners.br.y) / 2;
+    const searchTop = Math.max(0, Math.round(avgBottomNorm * canvas.height + boardCellSize * 0.5));
+    const searchBottom = Math.min(canvas.height, Math.round(searchTop + boardCellSize * 8));
+    const searchHeight = searchBottom - searchTop;
+    if (searchHeight < trayCellSize) return [];
+
+    const scale = Math.min(1, 320 / Math.max(canvas.width, searchHeight));
+    const w = Math.max(3, Math.round(canvas.width * scale));
+    const h = Math.max(3, Math.round(searchHeight * scale));
+
+    const off = document.createElement("canvas");
+    off.width = w;
+    off.height = h;
+    const octx = off.getContext("2d", { willReadFrequently: true });
+    octx.drawImage(canvas, 0, searchTop, canvas.width, searchHeight, 0, 0, w, h);
+    const { data } = octx.getImageData(0, 0, w, h);
+
+    let mask = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      const { s, v } = rgbToHsv(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
+      mask[i] = s * v >= threshold ? 1 : 0;
+    }
+    mask = dilateMask(mask, w, h, 2);
+
+    const minAreaPx = Math.max(4, (trayCellSize * scale) ** 2 * 0.3);
+    const blobs = findConnectedComponents(mask, w, h)
+      .filter((c) => c.size >= minAreaPx)
+      .sort((a, b) => a.minX - b.minX)
+      .slice(0, 3);
+
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    return blobs.map((blob) => {
+      const bx0 = blob.minX / scale;
+      const bx1 = (blob.maxX + 1) / scale;
+      const by0 = searchTop + blob.minY / scale;
+      const by1 = searchTop + (blob.maxY + 1) / scale;
+      const widthPx = bx1 - bx0;
+      const heightPx = by1 - by0;
+
+      const widthInCells = Math.min(5, Math.max(1, Math.round(widthPx / trayCellSize)));
+      const heightInCells = Math.min(5, Math.max(1, Math.round(heightPx / trayCellSize)));
+      const cellW = widthPx / widthInCells;
+      const cellH = heightPx / heightInCells;
+      const patchSize = Math.max(4, Math.min(cellW, cellH) * 0.5);
+
+      const filledCells = [];
+      for (let r = 0; r < heightInCells; r++) {
+        for (let c = 0; c < widthInCells; c++) {
+          const cx = bx0 + (c + 0.5) * cellW;
+          const cy = by0 + (r + 0.5) * cellH;
+          const { r: mr, g: mg, b: mb } = samplePatchMedianColor(ctx, cx, cy, patchSize, canvas.width, canvas.height);
+          const { s, v } = rgbToHsv(mr, mg, mb);
+          if (s * v >= threshold) filledCells.push([r, c]);
+        }
+      }
+      return matchPieceShape(filledCells);
+    });
+  } catch {
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------

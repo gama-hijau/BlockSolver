@@ -74,6 +74,15 @@ development).
   Auto-detect crop tetap best-effort (lihat komentar di `js/detector.js`)
   dan koreksi manual (crop + tap sel) selalu tersedia sebagai fallback
   wajib, sesuai spesifikasi.
+- **Tray (3 piece) juga dideteksi otomatis dari screenshot**
+  (`detectTrayPieces` di `js/detector.js`): connected-component blob
+  detection di area di bawah papan, tiap blob dicocokkan ke salah satu
+  dari 37 piece lewat pola sel ternormalisasi. Threshold warnanya BEDA
+  dari papan (0.40, bukan slider papan) karena background di luar papan
+  (biru medium) punya saturasi×value lebih tinggi dari background sel
+  kosong papan (navy gelap) — satu threshold tidak cocok untuk keduanya.
+  Hasil deteksi ini hanya mengisi slot tray yang sudah ada; tap slot untuk
+  koreksi manual tetap berfungsi seperti biasa.
 
 ## Struktur file
 
